@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Scanner QR - file unico</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #141b34;
+      --panel-2: #1b2445;
+      --text: #eef3ff;
+      --muted: #b8c2e0;
+      --ok: #24c26a;
+      --warn: #f3b33d;
+      --err: #ef5b5b;
+      --accent: #7db2ff;
+      --border: rgba(255,255,255,.1);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: linear-gradient(180deg, #09101f, #0f1830 30%, #0b1020);
+      color: var(--text);
+    }
+    .wrap {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+    .card {
+      background: rgba(20,27,52,.92);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.25);
+      overflow: hidden;
+    }
+    .header { padding: 18px 18px 8px; }
+    h1 { margin: 0 0 6px; font-size: 24px; }
+    p { margin: 0; color: var(--muted); line-height: 1.45; }
+    .camera-wrap {
+      position: relative;
+      background: #000;
+      aspect-ratio: 4 / 3;
+      width: 100%;
+      overflow: hidden;
+    }
+    video, canvas.preview {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      background: #000;
+    }
+    .overlay {
+      position: absolute; inset: 0;
+      pointer-events: none;
+      display: grid; place-items: center;
+    }
+    .scan-box {
+      width: min(70vw, 300px);
+      aspect-ratio: 1;
+      border: 2px solid rgba(255,255,255,.95);
+      border-radius: 24px;
+      box-shadow: 0 0 0 9999px rgba(0,0,0,.22);
+      position: relative;
+    }
+    .scan-box::before, .scan-box::after {
+      content: "";
+      position: absolute;
+      inset: 10px;
+      border-top: 4px solid #7dffb0;
+      border-left: 4px solid #7dffb0;
+      width: 40px; height: 40px;
+      border-radius: 10px 0 0 0;
+    }
+    .scan-box::after {
+      inset: auto 10px 10px auto;
+      border: 0;
+      border-right: 4px solid #7dffb0;
+      border-bottom: 4px solid #7dffb0;
+      border-radius: 0 0 10px 0;
+      width: 40px; height: 40px;
+    }
+    .controls {
+      padding: 14px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0,1fr));
+      gap: 10px;
+    }
+    .controls.full { grid-template-columns: 1fr; }
+    button, select, input[type="file"] {
+      width: 100%;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      color: var(--text);
+      padding: 12px 14px;
+      font-size: 15px;
+    }
+    button { cursor: pointer; }
+    button.primary { background: linear-gradient(180deg, #4f89ff, #356de6); }
+    button.good { background: linear-gradient(180deg, #34c977, #20a85f); }
+    button.warn { background: linear-gradient(180deg, #e1a63f, #c68917); }
+    button.ghost { background: #1b2445; }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+    .section { padding: 0 14px 14px; }
+    .status {
+      margin-top: 8px;
+      padding: 12px 14px;
+      background: rgba(255,255,255,.04);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      color: var(--text);
+    }
+    .status.ok { border-color: rgba(36,194,106,.45); }
+    .status.warn { border-color: rgba(243,179,61,.45); }
+    .status.err { border-color: rgba(239,91,91,.45); }
+    .result {
+      margin-top: 12px;
+      padding: 14px;
+      border-radius: 16px;
+      background: rgba(125,178,255,.08);
+      border: 1px solid rgba(125,178,255,.26);
+      word-break: break-word;
+    }
+    .row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    .row > * { flex: 1 1 180px; }
+    .hint {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 8px;
+    }
+    .hidden { display: none !important; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .badge {
+      display: inline-block;
+      font-size: 12px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.04);
+      color: var(--muted);
+      margin-top: 8px;
+    }
+    a { color: #9fd4ff; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="header">
+        <h1>Scanner QR - file unico</h1>
+        <p>Versione senza dipendenze esterne. Su Windows conviene usare Chrome o Edge. Su iPhone/iPad conviene usare Safari. Se la scansione live non parte, usa il pulsante per scattare/caricare una foto del QR.</p>
+        <div class="badge" id="supportBadge">Verifica supporto in corso...</div>
+      </div>
+
+      <div class="camera-wrap">
+        <video id="video" autoplay muted playsinline></video>
+        <canvas id="previewCanvas" class="preview hidden"></canvas>
+        <div class="overlay"><div class="scan-box"></div></div>
+      </div>
+
+      <div class="controls">
+        <button id="startBtn" class="primary">Avvia camera</button>
+        <button id="stopBtn" class="ghost" disabled>Ferma</button>
+        <select id="cameraSelect"></select>
+        <button id="switchBtn" class="ghost">Cambia fronte/retro</button>
+        <button id="snapBtn" class="good">Scatta immagine dal video</button>
+        <button id="copyBtn" class="ghost" disabled>Copia risultato</button>
+        <button id="openBtn" class="warn" disabled>Apri link</button>
+        <label>
+          <input id="fileInput" type="file" accept="image/*" capture="environment" style="display:none;">
+          <button id="pickBtn" type="button" class="ghost">Apri immagine QR</button>
+        </label>
+      </div>
+
+      <div class="section">
+        <div id="status" class="status">Pronto.</div>
+        <div id="result" class="result hidden"></div>
+        <div class="hint">Suggerimenti: aumenta la luce, riempi il riquadro, evita riflessi, tieni il QR fermo per 1-2 secondi. Su Apple alcuni browser embedded limitano la camera: Safari è il più affidabile.</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      'use strict';
+
+      const video = document.getElementById('video');
+      const previewCanvas = document.getElementById('previewCanvas');
+      const previewCtx = previewCanvas.getContext('2d', { willReadFrequently: true });
+      const workCanvas = document.createElement('canvas');
+      const workCtx = workCanvas.getContext('2d', { willReadFrequently: true });
+
+      const statusEl = document.getElementById('status');
+      const resultEl = document.getElementById('result');
+      const supportBadge = document.getElementById('supportBadge');
+      const startBtn = document.getElementById('startBtn');
+      const stopBtn = document.getElementById('stopBtn');
+      const switchBtn = document.getElementById('switchBtn');
+      const snapBtn = document.getElementById('snapBtn');
+      const copyBtn = document.getElementById('copyBtn');
+      const openBtn = document.getElementById('openBtn');
+      const pickBtn = document.getElementById('pickBtn');
+      const fileInput = document.getElementById('fileInput');
+      const cameraSelect = document.getElementById('cameraSelect');
+
+      let stream = null;
+      let track = null;
+      let detector = null;
+      let running = false;
+      let rafId = 0;
+      let lastText = '';
+      let lastEmittedAt = 0;
+      let preferredFacing = 'environment';
+      let scanBusy = false;
+      let frameCounter = 0;
+
+      function setStatus(text, cls = '') {
+        statusEl.textContent = text;
+        statusEl.className = 'status' + (cls ? ' ' + cls : '');
+      }
+
+      function setResult(text) {
+        lastText = text || '';
+        if (!text) {
+          resultEl.classList.add('hidden');
+          resultEl.innerHTML = '';
+          copyBtn.disabled = true;
+          openBtn.disabled = true;
+          return;
+        }
+        const escaped = text
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;');
+        let extra = '';
+        if (isLikelyUrl(text)) {
+          const url = normalizeUrl(text);
+          extra = '<div class="row"><a href="' + url + '" target="_blank" rel="noopener">Apri: ' + escaped + '</a></div>';
+        }
+        resultEl.innerHTML = '<div><strong>QR letto:</strong></div><div class="mono" style="margin-top:8px">' + escaped + '</div>' + extra;
+        resultEl.classList.remove('hidden');
+        copyBtn.disabled = false;
+        openBtn.disabled = !isLikelyUrl(text);
+      }
+
+      function isLikelyUrl(text) {
+        return /^(https?:\/\/|www\.)/i.test((text || '').trim());
+      }
+
+      function normalizeUrl(text) {
+        return /^https?:\/\//i.test(text) ? text : 'https://' + text;
+      }
+
+      async function initDetector() {
+        if (!('BarcodeDetector' in window)) return null;
+        try {
+          if (typeof BarcodeDetector.getSupportedFormats === 'function') {
+            const formats = await BarcodeDetector.getSupportedFormats();
+            if (!formats.includes('qr_code')) return null;
+          }
+          return new BarcodeDetector({ formats: ['qr_code'] });
+        } catch (_) {
+          return null;
+        }
+      }
+
+      async function refreshSupportBadge() {
+        const secure = window.isSecureContext;
+        const gum = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+        detector = await initDetector();
+        const parts = [];
+        parts.push(secure ? 'Contesto sicuro OK' : 'Serve HTTPS o localhost');
+        parts.push(gum ? 'Camera OK' : 'Camera non supportata');
+        parts.push(detector ? 'Decoder QR live OK' : 'Decoder QR live limitato');
+        supportBadge.textContent = parts.join(' • ');
+      }
+
+      async function listCameras() {
+        cameraSelect.innerHTML = '<option value="">Camera automatica</option>';
+        if (!(navigator.mediaDevices && navigator.mediaDevices.enumerateDevices)) return;
+        try {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const cams = devices.filter(d => d.kind === 'videoinput');
+          cams.forEach((cam, i) => {
+            const opt = document.createElement('option');
+            opt.value = cam.deviceId;
+            opt.textContent = cam.label || ('Camera ' + (i + 1));
+            cameraSelect.appendChild(opt);
+          });
+        } catch (_) {}
+      }
+
+      async function stopCamera() {
+        running = false;
+        if (rafId) cancelAnimationFrame(rafId);
+        rafId = 0;
+        if (video) {
+          video.pause();
+          video.srcObject = null;
+        }
+        if (stream) {
+          stream.getTracks().forEach(t => t.stop());
+        }
+        stream = null;
+        track = null;
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+      }
+
+      async function startCamera(deviceId = '') {
+        await stopCamera();
+        if (!window.isSecureContext) {
+          setStatus('Per aprire la camera devi usare HTTPS o localhost.', 'err');
+          return;
+        }
+        if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) {
+          setStatus('Questo browser non supporta la camera web.', 'err');
+          return;
+        }
+        try {
+          const constraints = {
+            audio: false,
+            video: deviceId
+              ? { deviceId: { exact: deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+              : { facingMode: { ideal: preferredFacing }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+          };
+
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          track = stream.getVideoTracks()[0] || null;
+          video.srcObject = stream;
+          await video.play();
+          await applyBestEffortFocus();
+          running = true;
+          startBtn.disabled = true;
+          stopBtn.disabled = false;
+          setStatus(detector
+            ? 'Camera attiva. Inquadra il QR nel riquadro.'
+            : 'Camera attiva, ma il decoder live di questo browser è limitato. Usa Chrome/Edge su Windows oppure Safari su iPhone/iPad. In alternativa usa “Scatta immagine dal video” o “Apri immagine QR”.', detector ? 'ok' : 'warn');
+          await listCameras();
+          loop();
+        } catch (err) {
+          setStatus('Impossibile avviare la camera: ' + (err && err.message ? err.message : err), 'err');
+        }
+      }
+
+      async function applyBestEffortFocus() {
+        if (!track || !track.applyConstraints || !track.getCapabilities) return;
+        try {
+          const caps = track.getCapabilities();
+          const advanced = [];
+          if (caps.focusMode && caps.focusMode.includes('continuous')) advanced.push({ focusMode: 'continuous' });
+          if (caps.exposureMode && caps.exposureMode.includes('continuous')) advanced.push({ exposureMode: 'continuous' });
+          if (caps.whiteBalanceMode && caps.whiteBalanceMode.includes('continuous')) advanced.push({ whiteBalanceMode: 'continuous' });
+          if (advanced.length) await track.applyConstraints({ advanced });
+        } catch (_) {}
+      }
+
+      function getCropRect(sourceWidth, sourceHeight) {
+        const side = Math.floor(Math.min(sourceWidth, sourceHeight) * 0.68);
+        return {
+          sx: Math.floor((sourceWidth - side) / 2),
+          sy: Math.floor((sourceHeight - side) / 2),
+          sw: side,
+          sh: side
+        };
+      }
+
+      async function detectFromCanvas(canvas) {
+        if (!detector) return null;
+        try {
+          const found = await detector.detect(canvas);
+          if (found && found.length && found[0].rawValue) return found[0].rawValue.trim();
+        } catch (_) {}
+        return null;
+      }
+
+      async function scanVideoFrame() {
+        if (!running || !detector || scanBusy || !video.videoWidth || !video.videoHeight) return;
+        scanBusy = true;
+        try {
+          const r = getCropRect(video.videoWidth, video.videoHeight);
+          workCanvas.width = r.sw;
+          workCanvas.height = r.sh;
+          workCtx.drawImage(video, r.sx, r.sy, r.sw, r.sh, 0, 0, r.sw, r.sh);
+          const text = await detectFromCanvas(workCanvas);
+          if (text) emitResult(text, true);
+        } finally {
+          scanBusy = false;
+        }
+      }
+
+      function loop() {
+        if (!running) return;
+        frameCounter = (frameCounter + 1) % 3;
+        if (frameCounter === 0) scanVideoFrame();
+        rafId = requestAnimationFrame(loop);
+      }
+
+      function emitResult(text, vibrate = false) {
+        const now = Date.now();
+        if (text === lastText && now - lastEmittedAt < 1800) return;
+        lastEmittedAt = now;
+        setResult(text);
+        setStatus('QR letto correttamente.', 'ok');
+        if (vibrate && navigator.vibrate) {
+          try { navigator.vibrate(70); } catch (_) {}
+        }
+      }
+
+      async function decodeImageBitmap(bitmap) {
+        const r = getCropRect(bitmap.width, bitmap.height);
+        workCanvas.width = bitmap.width;
+        workCanvas.height = bitmap.height;
+        workCtx.drawImage(bitmap, 0, 0);
+
+        previewCanvas.width = bitmap.width;
+        previewCanvas.height = bitmap.height;
+        previewCtx.drawImage(bitmap, 0, 0);
+        previewCanvas.classList.remove('hidden');
+
+        let text = await detectFromCanvas(workCanvas);
+        if (!text) {
+          const zones = [
+            r,
+            { sx: 0, sy: 0, sw: bitmap.width, sh: bitmap.height },
+            { sx: 0, sy: 0, sw: Math.floor(bitmap.width * 0.8), sh: Math.floor(bitmap.height * 0.8) },
+            { sx: Math.floor(bitmap.width * 0.1), sy: Math.floor(bitmap.height * 0.1), sw: Math.floor(bitmap.width * 0.8), sh: Math.floor(bitmap.height * 0.8) }
+          ];
+          for (const z of zones) {
+            workCanvas.width = z.sw;
+            workCanvas.height = z.sh;
+            workCtx.drawImage(bitmap, z.sx, z.sy, z.sw, z.sh, 0, 0, z.sw, z.sh);
+            text = await detectFromCanvas(workCanvas);
+            if (text) break;
+          }
+        }
+        if (text) {
+          emitResult(text, false);
+        } else {
+          setStatus(detector
+            ? 'Immagine acquisita, ma non sono riuscito a leggere un QR. Prova con più luce, più vicino, senza riflessi, o con il QR più grande.'
+            : 'Questo browser non espone il decoder QR necessario per la scansione locale. Prova Chrome/Edge su Windows o Safari su Apple.', 'warn');
+        }
+      }
+
+      async function decodeFile(file) {
+        if (!file) return;
+        try {
+          const bitmap = await createImageBitmap(file);
+          await decodeImageBitmap(bitmap);
+        } catch (err) {
+          setStatus('Errore apertura immagine: ' + (err && err.message ? err.message : err), 'err');
+        }
+      }
+
+      async function snapshotFromVideo() {
+        if (!video.videoWidth || !video.videoHeight) {
+          setStatus('Prima avvia la camera.', 'warn');
+          return;
+        }
+        workCanvas.width = video.videoWidth;
+        workCanvas.height = video.videoHeight;
+        workCtx.drawImage(video, 0, 0);
+        const blob = await new Promise(resolve => workCanvas.toBlob(resolve, 'image/jpeg', 0.95));
+        if (!blob) {
+          setStatus('Impossibile creare lo snapshot.', 'err');
+          return;
+        }
+        const file = new File([blob], 'snapshot.jpg', { type: 'image/jpeg' });
+        await decodeFile(file);
+      }
+
+      startBtn.addEventListener('click', () => startCamera(cameraSelect.value));
+      stopBtn.addEventListener('click', stopCamera);
+      switchBtn.addEventListener('click', async () => {
+        preferredFacing = preferredFacing === 'environment' ? 'user' : 'environment';
+        await startCamera(cameraSelect.value);
+      });
+      snapBtn.addEventListener('click', snapshotFromVideo);
+      copyBtn.addEventListener('click', async () => {
+        if (!lastText) return;
+        try {
+          await navigator.clipboard.writeText(lastText);
+          setStatus('Risultato copiato negli appunti.', 'ok');
+        } catch (_) {
+          setStatus('Copia non riuscita.', 'warn');
+        }
+      });
+      openBtn.addEventListener('click', () => {
+        if (isLikelyUrl(lastText)) window.open(normalizeUrl(lastText), '_blank', 'noopener');
+      });
+      pickBtn.addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (file) await decodeFile(file);
+        fileInput.value = '';
+      });
+      cameraSelect.addEventListener('change', () => {
+        if (running) startCamera(cameraSelect.value);
+      });
+
+      window.addEventListener('beforeunload', stopCamera);
+
+      (async () => {
+        await refreshSupportBadge();
+        await listCameras();
+        if (!window.isSecureContext) {
+          setStatus('Apri questo file da HTTPS o localhost per usare la camera. Per una prova rapida puoi comunque usare “Apri immagine QR” se il browser lo permette.', 'warn');
+        } else if (!detector) {
+          setStatus('Il browser consente la camera ma il decoder QR live è limitato. Usa Chrome/Edge su Windows o Safari su Apple. In alternativa scatta/carica una foto del QR.', 'warn');
+        }
+      })();
+    })();
+  </script>
+</body>
+</html>
